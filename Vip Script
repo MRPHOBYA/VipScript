@@ -1,0 +1,333 @@
+-- [[ ALPHA GOLD V5.2 - FIXED COLORS + VEHICLE AIM FIX ]] --
+
+local AllowedUsers = {
+    ["ghostjelly39"] = "Owner",
+    ["dhydratatio"] = "Owner",
+    ["azdadazs"] = "User",
+}
+
+local Player = game:GetService("Players").LocalPlayer
+
+local function Notify(title, text)
+    game:GetService("StarterGui"):SetCore("SendNotification", {
+        Title = title,
+        Text = text,
+        Duration = 5,
+    })
+end
+
+local userRole = AllowedUsers[Player.Name:lower()] or AllowedUsers[Player.Name]
+if not userRole then
+    Notify("❌ ACCESS DENIED", "Sifet l-Username dyalk l-Admin!")
+    task.wait(0.5)
+    Player:Kick("❌ Permission Denied!")
+    return
+end
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local StarterPack = game:GetService("StarterPack")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Camera = workspace.CurrentCamera
+
+-- ===== Extended Weapon Colors =====
+local WeaponColors = {
+    -- [ 🟡 GOLDEN ITEMS ]
+    ["Diamond Pot"] = "rgb(255, 215, 0)",
+    ["Golden Pot"] = "rgb(255, 215, 0)",
+    ["Firework"] = "rgb(255, 215, 0)",
+    ["Tactical Axe"] = "rgb(255, 215, 0)",
+    ["Golden Tomato Seed"] = "rgb(255, 215, 0)",
+    ["AK47"] = "rgb(255, 215, 0)",
+    ["RPG"] = "rgb(255, 215, 0)",
+    ["Crossbow"] = "rgb(255, 215, 0)",
+    ["Tactical Knife"] = "rgb(255, 215, 0)",
+    ["Rocket"] = "rgb(255, 215, 0)",
+    ["M16"] = "rgb(255, 215, 0)",
+    ["MP5"] = "rgb(255, 215, 0)",
+    ["Remington"] = "rgb(255, 215, 0)",
+    ["Tictical Shovel"] = "rgb(255, 215, 0)",
+
+    -- [ 🟣 PURPLE ITEMS ]
+    ["Double Barrel"] = "rgb(170, 0, 255)",
+    ["Metal Baseball Bat"] = "rgb(170, 0, 255)",
+    ["Draco"] = "rgb(170, 0, 255)",
+    ["M24"] = "rgb(170, 0, 255)",
+    ["Axe"] = "rgb(170, 0, 255)",
+    ["Molotov"] = "rgb(170, 0, 255)",
+    ["Combat Axe"] = "rgb(170, 0, 255)",
+    ["Machette"] = "rgb(170, 0, 255)",
+    ["Sledge Hammer"] = "rgb(170, 0, 255)",
+    ["Shovel"] = "rgb(170, 0, 255)",
+    ["Skorpion"] = "rgb(170, 0, 255)",
+    ["Energy Bar Max"] = "rgb(170, 0, 255)",
+
+    -- [ 🔵 BLUE ITEMS ]
+    ["Uzi"] = "rgb(0, 170, 255)",
+    ["Sawnoff"] = "rgb(0, 170, 255)",
+    ["Frying Pan"] = "rgb(0, 170, 255)",
+    ["Crowbar"] = "rgb(0, 170, 255)",
+    ["Switchblade"] = "rgb(0, 170, 255)",
+    ["Brainrot Slapper"] = "rgb(0, 170, 255)",
+    ["P226"] = "rgb(0, 170, 255)",
+    ["Cinder Block"] = "rgb(0, 170, 255)",
+    ["Wrench"] = "rgb(0, 170, 255)",
+    ["Hunting Rifle"] = "rgb(0, 170, 255)",
+    ["Regular Fertilizer"] = "rgb(0, 170, 255)",
+    ["Glock"] = "rgb(0, 170, 255)",
+}
+
+local function getInvColor(name)
+    for weaponName, color in pairs(WeaponColors) do
+        if name:lower():find(weaponName:lower()) then
+            return color
+        end
+    end
+    return "rgb(255, 255, 255)"
+end
+
+_G.Whitelist = {} 
+local AimbotOn = true
+local FOVRadius = 100 
+local espEnabled = true
+local weaponCache = {} 
+
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Thickness = 1.5
+FOVCircle.Color = Color3.fromRGB(0, 170, 255)
+FOVCircle.Transparency = 0.7
+FOVCircle.Visible = true
+
+local function getCleanWeapon(tool)
+    if not tool then return "Fists" end
+    if weaponCache[tool.Name] then return weaponCache[tool.Name] end
+    local handle = tool:FindFirstChild("Handle")
+    if handle then
+        local childNames = {}
+        for _, child in ipairs(handle:GetChildren()) do childNames[child.Name] = true end
+        for _, source in ipairs({ReplicatedStorage:FindFirstChild("Items"), StarterPack}) do
+            if source then
+                for _, item in ipairs(source:GetDescendants()) do 
+                    if item:IsA("Tool") and item:FindFirstChild("Handle") then
+                        local matches = true
+                        for name in pairs(childNames) do
+                            if not item.Handle:FindFirstChild(name) then matches = false break end
+                        end
+                        if matches then weaponCache[tool.Name] = item.Name return item.Name end
+                    end
+                end
+            end
+        end
+    end
+    local cleanName = tool.Name:gsub("%[.-%]", ""):gsub("%s+", " ")
+    weaponCache[tool.Name] = cleanName
+    return cleanName
+end
+
+local function getColoredInv(p)
+    local items = {}
+    if p:FindFirstChild("Backpack") then
+        for _, item in ipairs(p.Backpack:GetChildren()) do
+            if item:IsA("Tool") then
+                local name = getCleanWeapon(item)
+                if name ~= "Fists" then
+                    local col = getInvColor(name)
+                    table.insert(items, string.format("<font color='%s'>%s</font>", col, name))
+                end
+            end
+        end
+    end
+    return items
+end
+
+-- ===== ORIGINAL AIMBOT LOGIC =====
+local function IsVisible(part)
+    local character = Player.Character
+    if not character then return false end
+    local rayParams = RaycastParams.new()
+    rayParams.FilterDescendantsInstances = {character, part.Parent} 
+    rayParams.FilterType = Enum.RaycastFilterType.Blacklist
+    local result = workspace:Raycast(Camera.CFrame.Position, part.Position - Camera.CFrame.Position, rayParams)
+    return result == nil 
+end
+
+RunService.RenderStepped:Connect(function()
+    FOVCircle.Radius = FOVRadius
+    FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    FOVCircle.Visible = AimbotOn
+
+    if AimbotOn then
+        local closestTarget, minDist = nil, FOVRadius
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= Player and not table.find(_G.Whitelist, plr.Name) and plr.Character then
+                local head = plr.Character:FindFirstChild("Head")
+                local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+                if head and hum and hum.Health > 0 then
+                    local pos, onScreen = Camera:WorldToViewportPoint(head.Position)
+                    if onScreen and IsVisible(head) then
+                        local screenDist = (Vector2.new(pos.X, pos.Y) - (Camera.ViewportSize / 2)).Magnitude
+                        if screenDist < minDist then
+                            minDist = screenDist
+                            closestTarget = head
+                        end
+                    end
+                end
+            end
+        end
+        if closestTarget then
+            local targetPos = closestTarget.Position
+            -- Fix mli kikon f tomobil (Vehicle Fix)
+            local hum = closestTarget.Parent:FindFirstChildOfClass("Humanoid")
+            if hum and hum.SeatPart then
+                targetPos = targetPos - Vector3.new(0, 0.6, 0)
+            end
+            Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetPos)
+        end
+    end
+end)
+
+-- ===== ESP SYSTEM =====
+RunService.RenderStepped:Connect(function()
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= Player and p.Character then
+            local char = p.Character
+            local head = char:FindFirstChild("Head")
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            
+            if espEnabled and head and hrp and hum and hum.Health > 0 then
+                local chams = char:FindFirstChild("AlphaChams") or Instance.new("Highlight", char)
+                if chams.Name ~= "AlphaChams" then
+                    chams.Name = "AlphaChams"
+                    chams.FillTransparency = 0.8
+                    chams.OutlineColor = Color3.fromRGB(0, 170, 255)
+                    chams.FillColor = Color3.fromRGB(0, 170, 255)
+                    chams.OutlineTransparency = 0
+                end
+                chams.Enabled = true
+
+                local guiTop = head:FindFirstChild("AlphaTop") or Instance.new("BillboardGui", head)
+                if guiTop.Name ~= "AlphaTop" then
+                    guiTop.Name = "AlphaTop"; guiTop.AlwaysOnTop = true; guiTop.Size = UDim2.new(0, 200, 0, 50); guiTop.StudsOffset = Vector3.new(0, 2.5, 0)
+                    local l = Instance.new("TextLabel", guiTop)
+                    l.Name = "Info"; l.Size = UDim2.new(1, 0, 1, 0); l.BackgroundTransparency = 1; l.TextSize = 11; l.Font = Enum.Font.GothamBold; l.RichText = true; l.TextColor3 = Color3.new(1,1,1); l.TextStrokeTransparency = 0.5
+                end
+                
+                local guiBot = hrp:FindFirstChild("AlphaBotInv") or Instance.new("BillboardGui", hrp)
+                if guiBot.Name ~= "AlphaBotInv" then
+                    guiBot.Name = "AlphaBotInv"; guiBot.AlwaysOnTop = true; guiBot.Size = UDim2.new(0, 200, 0, 150); guiBot.StudsOffset = Vector3.new(0, -6, 0)
+                    local l = Instance.new("TextLabel", guiBot)
+                    l.Name = "Inv"; l.Size = UDim2.new(1, 0, 1, 0); l.BackgroundTransparency = 1; l.TextSize = 9; l.Font = Enum.Font.GothamBold; l.RichText = true; l.TextColor3 = Color3.new(1,1,1); l.TextStrokeTransparency = 0.5; l.TextVerticalAlignment = Enum.TextVerticalAlignment.Top
+                end
+
+                local dist = math.floor((Player.Character.HumanoidRootPart.Position - hrp.Position).Magnitude)
+                local toolObj = char:FindFirstChildOfClass("Tool")
+                local mainWep = toolObj and getCleanWeapon(toolObj) or "Fists"
+                
+                local mainCol = getInvColor(mainWep)
+                local weaponDisplay = (mainWep ~= "Fists") and string.format("\n<font color='%s'><b>%s</b></font>", mainCol, mainWep) or ""
+                
+                local invItems = getColoredInv(p)
+                local hpColor = hum.Health > 50 and "rgb(0,255,0)" or "rgb(255,0,0)"
+                
+                guiTop.Info.Text = string.format("<font color='%s'>HP: %d</font> | %s [%dm]%s", hpColor, math.floor(hum.Health), p.Name, dist, weaponDisplay)
+                
+                if #invItems > 0 then
+                    guiBot.Inv.Text = "<b>[ INVENTORY ]</b>\n" .. table.concat(invItems, "\n")
+                    guiBot.Enabled = true
+                else
+                    guiBot.Enabled = false
+                end
+                guiTop.Enabled = true
+            else
+                if char:FindFirstChild("AlphaChams") then char.AlphaChams.Enabled = false end
+                if head:FindFirstChild("AlphaTop") then head.AlphaTop.Enabled = false end
+                if hrp:FindFirstChild("AlphaBotInv") then hrp.AlphaBotInv.Enabled = false end
+            end
+        end
+    end
+end)
+
+-- ===== UI SYSTEM (HIRMANO STYLE) =====
+local ScreenGui = Instance.new("ScreenGui", game.CoreGui)
+local MainFrame = Instance.new("Frame", ScreenGui)
+MainFrame.Size = UDim2.new(0, 380, 0, 520); MainFrame.Position = UDim2.new(0.5, -190, 0.5, -260); MainFrame.BackgroundColor3 = Color3.fromRGB(12, 12, 15); MainFrame.Visible = false; MainFrame.BorderSizePixel = 0
+local MainCorner = Instance.new("UICorner", MainFrame); MainCorner.CornerRadius = UDim.new(0, 12)
+local Stroke = Instance.new("UIStroke", MainFrame); Stroke.Color = Color3.fromRGB(0, 170, 255); Stroke.Thickness = 2; Stroke.Transparency = 0.4
+
+local Title = Instance.new("TextLabel", MainFrame)
+Title.Size = UDim2.new(1, 0, 0, 60); Title.Text = "ALPHA GOLD V5.2"; Title.TextColor3 = Color3.fromRGB(0, 170, 255); Title.BackgroundTransparency = 1; Title.Font = Enum.Font.GothamBold; Title.TextSize = 22
+
+local function createBtn(txt, pos, parent)
+    local b = Instance.new("TextButton", parent)
+    b.Size = UDim2.new(0.85, 0, 0, 45); b.Position = pos; b.BackgroundColor3 = Color3.fromRGB(22, 22, 28); b.Text = txt; b.TextColor3 = Color3.new(1,1,1); b.Font = Enum.Font.GothamBold; b.TextSize = 14; b.AutoButtonColor = true
+    local bc = Instance.new("UICorner", b); bc.CornerRadius = UDim.new(0, 8)
+    local bs = Instance.new("UIStroke", b); bs.Color = Color3.fromRGB(45, 45, 55); bs.Thickness = 1
+    return b
+end
+
+local AimBtn = createBtn("🔫 AIMBOT: ON", UDim2.new(0.07, 0, 0.15, 0), MainFrame)
+local EspBtn = createBtn("👁️ ESP: ON", UDim2.new(0.07, 0, 0.25, 0), MainFrame)
+
+local FOVLabel = Instance.new("TextLabel", MainFrame)
+FOVLabel.Size = UDim2.new(0.85, 0, 0, 20); FOVLabel.Position = UDim2.new(0.07, 0, 0.35, 0); FOVLabel.BackgroundTransparency = 1; FOVLabel.Text = "FOV SIZE: " .. FOVRadius; FOVLabel.TextColor3 = Color3.fromRGB(200, 200, 200); FOVLabel.Font = Enum.Font.GothamBold; FOVLabel.TextSize = 13; FOVLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+local SliderBG = Instance.new("Frame", MainFrame)
+SliderBG.Size = UDim2.new(0.85, 0, 0, 6); SliderBG.Position = UDim2.new(0.07, 0, 0.40, 0); SliderBG.BackgroundColor3 = Color3.fromRGB(30, 30, 35); Instance.new("UICorner", SliderBG)
+
+local SliderFill = Instance.new("Frame", SliderBG)
+SliderFill.Size = UDim2.new(FOVRadius/800, 0, 1, 0); SliderFill.BackgroundColor3 = Color3.fromRGB(0, 170, 255); Instance.new("UICorner", SliderFill)
+
+local function UpdateFOV(input)
+    local pos = math.clamp((input.Position.X - SliderBG.AbsolutePosition.X) / SliderBG.AbsoluteSize.X, 0, 1)
+    SliderFill.Size = UDim2.new(pos, 0, 1, 0)
+    FOVRadius = math.floor(pos * 800)
+    FOVLabel.Text = "FOV SIZE: " .. FOVRadius
+end
+
+SliderBG.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        local moveConn; moveConn = UserInputService.InputChanged:Connect(function(move)
+            if move.UserInputType == Enum.UserInputType.MouseMovement then UpdateFOV(move) end
+        end)
+        UserInputService.InputEnded:Connect(function(ended)
+            if ended.UserInputType == Enum.UserInputType.MouseButton1 then moveConn:Disconnect() end
+        end)
+        UpdateFOV(input)
+    end
+end)
+
+local Scroll = Instance.new("ScrollingFrame", MainFrame)
+Scroll.Size = UDim2.new(0.85, 0, 0.4, 0); Scroll.Position = UDim2.new(0.07, 0, 0.52, 0); Scroll.BackgroundColor3 = Color3.fromRGB(18, 18, 22); Scroll.CanvasSize = UDim2.new(0,0,0,0); Scroll.ScrollBarThickness = 2; Scroll.BorderSizePixel = 0
+local list = Instance.new("UIListLayout", Scroll); list.Padding = UDim.new(0,5); list.HorizontalAlignment = Enum.HorizontalAlignment.Center
+
+local function RefreshList()
+    for _, c in pairs(Scroll:GetChildren()) do if c:IsA("TextButton") then c:Destroy() end end
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= Player then
+            local isWhitelisted = table.find(_G.Whitelist, p.Name)
+            local b = Instance.new("TextButton", Scroll)
+            b.Size = UDim2.new(0.95, 0, 0, 35); b.Text = "  " .. p.Name; b.TextColor3 = isWhitelisted and Color3.new(0,1,0.5) or Color3.new(1,1,1); b.Font = Enum.Font.GothamBold; b.TextSize = 12; b.TextXAlignment = Enum.TextXAlignment.Left; b.BackgroundColor3 = Color3.fromRGB(25, 25, 30); Instance.new("UICorner", b)
+            b.MouseButton1Click:Connect(function()
+                local idx = table.find(_G.Whitelist, p.Name)
+                if idx then table.remove(_G.Whitelist, idx) else table.insert(_G.Whitelist, p.Name) end
+                RefreshList()
+            end)
+        end
+    end
+    Scroll.CanvasSize = UDim2.new(0,0,0, list.AbsoluteContentSize.Y + 10)
+end
+
+local Tgl = Instance.new("TextButton", ScreenGui)
+Tgl.Size = UDim2.new(0, 55, 0, 55); Tgl.Position = UDim2.new(0, 20, 0.45, 0); Tgl.Text = "A"; Tgl.BackgroundColor3 = Color3.fromRGB(0, 170, 255); Tgl.TextColor3 = Color3.new(1,1,1); Tgl.Font = Enum.Font.GothamBold; Tgl.TextSize = 25; Instance.new("UICorner", Tgl).CornerRadius = UDim.new(1,0)
+
+Tgl.MouseButton1Click:Connect(function() 
+    MainFrame.Visible = not MainFrame.Visible 
+    if MainFrame.Visible then RefreshList() end
+end)
+
+AimBtn.MouseButton1Click:Connect(function() AimbotOn = not AimbotOn AimBtn.Text = "🔫 AIMBOT: "..(AimbotOn and "ON" or "OFF") end)
+EspBtn.MouseButton1Click:Connect(function() espEnabled = not espEnabled EspBtn.Text = "👁️ ESP: "..(espEnabled and "ON" or "OFF") end)
+
+Notify("✅ ALPHA GOLD LOADED", "Vehicle Fix & Hirmano UI Active.")
